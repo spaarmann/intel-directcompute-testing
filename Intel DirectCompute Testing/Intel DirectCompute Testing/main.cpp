@@ -1,3 +1,7 @@
+// Substantial portions of this code are copied and adapted from the following DirectX sample:
+// https://github.com/walbourn/directx-sdk-samples/blob/master/BasicCompute11/BasicCompute11.cpp
+// That code is MIT licensed, see the LICENSE file for details.
+
 #define _WIN32_WINNT 0x600
 #include <stdio.h>
 
@@ -7,7 +11,7 @@
 #pragma comment(lib,"d3d11.lib")
 #pragma comment(lib,"d3dcompiler.lib")
 
-#define STRUCTURED_BUFFERS 1
+//#define STRUCTURED_BUFFERS 1
 
 HRESULT CompileComputeShader(LPCWSTR srcFile, LPCSTR entryPoint, ID3D11Device * device, ID3DBlob * *blob) {
 	if (!srcFile || !entryPoint || !device || !blob)

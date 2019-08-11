@@ -12,8 +12,9 @@
 #pragma comment(lib,"d3dcompiler.lib")
 
 //#define STRUCTURED_BUFFERS 1
+//#define SPLIT_INOUT 1
 
-HRESULT CompileComputeShader(LPCWSTR srcFile, LPCSTR entryPoint, ID3D11Device * device, ID3DBlob * *blob) {
+HRESULT CompileComputeShader(LPCWSTR srcFile, LPCSTR entryPoint, ID3D11Device* device, ID3DBlob** blob) {
 	if (!srcFile || !entryPoint || !device || !blob)
 		return E_INVALIDARG;
 
@@ -29,6 +30,9 @@ HRESULT CompileComputeShader(LPCWSTR srcFile, LPCSTR entryPoint, ID3D11Device * 
 	const D3D_SHADER_MACRO defines[] = {
 #ifdef STRUCTURED_BUFFERS
 		"STRUCTURED_BUFFERS", "1",
+#endif
+#ifdef SPLIT_INOUT
+		"SPLIT_INOUT", "1",
 #endif
 		nullptr, nullptr
 	};
@@ -61,6 +65,10 @@ HRESULT CreateStructuredBuffer(ID3D11Device* device, UINT elementSize, UINT coun
 	desc.ByteWidth = elementSize * count;
 	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
 	desc.StructureByteStride = elementSize;
+
+	if (initData == nullptr)
+		return device->CreateBuffer(&desc, nullptr, bufferOut);
+
 	D3D11_SUBRESOURCE_DATA d3dInitData;
 	d3dInitData.pSysMem = initData;
 	return device->CreateBuffer(&desc, &d3dInitData, bufferOut);
@@ -73,6 +81,10 @@ HRESULT CreateRawBuffer(ID3D11Device* device, UINT size, void* initData, ID3D11B
 	desc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_SHADER_RESOURCE;
 	desc.ByteWidth = size;
 	desc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS;
+
+	if (initData == nullptr)
+		return device->CreateBuffer(&desc, nullptr, bufferOut);
+
 	D3D11_SUBRESOURCE_DATA d3dInitData;
 	d3dInitData.pSysMem = initData;
 	return device->CreateBuffer(&desc, &d3dInitData, bufferOut);
@@ -105,9 +117,10 @@ HRESULT CreateBufferUAV(ID3D11Device* device, ID3D11Buffer* buffer, ID3D11Unorde
 	return res;
 }
 
-void RunComputeShader(ID3D11DeviceContext* immContext, ID3D11ComputeShader* computeShader, ID3D11UnorderedAccessView* uav) {
+void RunComputeShader(ID3D11DeviceContext* immContext, ID3D11ComputeShader* computeShader, ID3D11UnorderedAccessView** uavs, int uavCount) {
 	immContext->CSSetShader(computeShader, nullptr, 0);
-	immContext->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
+	//immContext->CSSetUnorderedAccessViews(0, 1, &uav, nullptr);
+	immContext->CSSetUnorderedAccessViews(0, uavCount, uavs, nullptr);
 	immContext->Dispatch(3, 3, 3);
 	immContext->CSSetShader(nullptr, nullptr, 0);
 	ID3D11UnorderedAccessView* uavnullptr[1] = { nullptr };
@@ -186,11 +199,22 @@ int main(int argc, char** argv) {
 	}
 
 	// Create and set up gpu-side buffer
+#ifdef SPLIT_INOUT
+	ID3D11Buffer* inBuffer = nullptr, * outBuffer = nullptr;
+#ifdef STRUCTURED_BUFFERS
+	CreateStructuredBuffer(device, sizeof(UINT), NUM_ELEMENTS, &cpuBuffer[0], &inBuffer);
+	hr = CreateStructuredBuffer(device, sizeof(UINT), NUM_ELEMENTS, nullptr, &outBuffer);
+#else
+	CreateRawBuffer(device, NUM_ELEMENTS * sizeof(UINT), &cpuBuffer[0], &inBuffer);
+	hr = CreateRawBuffer(device, NUM_ELEMENTS * sizeof(UINT), nullptr, &outBuffer);
+#endif
+#else
 	ID3D11Buffer* gpuBuffer = nullptr;
 #ifdef STRUCTURED_BUFFERS
 	hr = CreateStructuredBuffer(device, sizeof(UINT), NUM_ELEMENTS, &cpuBuffer[0], &gpuBuffer);
 #else
 	hr = CreateRawBuffer(device, NUM_ELEMENTS * sizeof(UINT), &cpuBuffer[0], &gpuBuffer);
+#endif
 #endif
 
 	if (FAILED(hr)) {
@@ -201,11 +225,22 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
+#ifdef SPLIT_INOUT
+	ID3D11UnorderedAccessView* inUav = nullptr, * outUav = nullptr;
+	CreateBufferUAV(device, inBuffer, &inUav);
+	hr = CreateBufferUAV(device, outBuffer, &outUav);
+#else
 	ID3D11UnorderedAccessView* uav = nullptr;
 	hr = CreateBufferUAV(device, gpuBuffer, &uav);
+#endif
 
 	if (FAILED(hr)) {
+#ifdef SPLIT_INOUT
+		inBuffer->Release();
+		outBuffer->Release();
+#else
 		gpuBuffer->Release();
+#endif
 		computeShader->Release();
 		context->Release();
 		device->Release();
@@ -214,10 +249,22 @@ int main(int argc, char** argv) {
 	}
 
 	// Run compute shader
-	RunComputeShader(context, computeShader, uav);
+	ID3D11UnorderedAccessView* uavs[] = {
+#ifdef SPLIT_INOUT
+		inUav, outUav
+#else
+		uav
+#endif
+	};
+
+	RunComputeShader(context, computeShader, uavs, _countof(uavs));
 
 	// Copy data back to CPU and output
+#if SPLIT_INOUT
+	ID3D11Buffer* debugbuf = CreateAndCopyToDebugBuf(device, context, outBuffer);
+#else
 	ID3D11Buffer* debugbuf = CreateAndCopyToDebugBuf(device, context, gpuBuffer);
+#endif
 	D3D11_MAPPED_SUBRESOURCE mappedResource;
 	context->Map(debugbuf, 0, D3D11_MAP_READ, 0, &mappedResource);
 	UINT* resData = (UINT*)mappedResource.pData;
@@ -232,8 +279,15 @@ int main(int argc, char** argv) {
 	debugbuf->Release();
 
 	// Exit cleanup
+#ifdef SPLIT_INOUT
+	inUav->Release();
+	outUav->Release();
+	inBuffer->Release();
+	outBuffer->Release();
+#else
 	uav->Release();
 	gpuBuffer->Release();
+#endif
 	computeShader->Release();
 	context->Release();
 	device->Release();

@@ -29,7 +29,7 @@ HRESULT CompileComputeShader(LPCWSTR srcFile, LPCSTR entryPoint, ID3D11Device* d
 	const D3D_SHADER_MACRO defines_structured_split[] = {
 		"STRUCTURED_BUFFERS", "1", "SPLIT_INOUT", "1", nullptr, nullptr };
 	const D3D_SHADER_MACRO defines_structured[] = {
-		"STRUCTUED_BUFFERS", "1", nullptr, nullptr };
+		"STRUCTURED_BUFFERS", "1", nullptr, nullptr };
 	const D3D_SHADER_MACRO defines_split[] = {
 		"SPLIT_INOUT", "1", nullptr, nullptr };
 	const D3D_SHADER_MACRO defines_none[] = {

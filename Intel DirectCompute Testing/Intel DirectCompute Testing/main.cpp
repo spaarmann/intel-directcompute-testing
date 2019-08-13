@@ -109,8 +109,7 @@ HRESULT CreateBufferUAV(ID3D11Device* device, ID3D11Buffer* buffer, ID3D11Unorde
 	desc.Buffer.FirstElement = 0;
 
 	if (bufferDesc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_ALLOW_RAW_VIEWS) {
-		desc.Format = DXGI_FORMAT_R32_TYPELESS;
-		desc.Buffer.Flags = D3D11_BUFFER_UAV_FLAG_RAW;
+		desc.Format = DXGI_FORMAT_R32_UINT;
 		desc.Buffer.NumElements = bufferDesc.ByteWidth / 4;
 	}
 	else if (bufferDesc.MiscFlags & D3D11_RESOURCE_MISC_BUFFER_STRUCTURED) {
@@ -313,6 +312,15 @@ int main(int argc, char** argv) {
 		printf("Failed creating Direct3D 11 device: %08X\n", hr);
 		return -1;
 	}
+
+	// Print GPU model
+	IDXGIDevice* dxgiDevice;
+	IDXGIAdapter* adapter;
+	device->QueryInterface(__uuidof(IDXGIDevice), (void**)& dxgiDevice);
+	dxgiDevice->GetAdapter(&adapter);
+	DXGI_ADAPTER_DESC adapterDesc = {};
+	adapter->GetDesc(&adapterDesc);
+	printf("Using GPU: %u, vendor %u: %ws\n\n", adapterDesc.DeviceId, adapterDesc.VendorId, adapterDesc.Description);
 
 	g_useStructuredBuffers = true;
 	g_useSplitInOutBuffers = true;
